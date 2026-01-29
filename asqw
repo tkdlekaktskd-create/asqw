@@ -1,0 +1,306 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8" />
+  <title>Canvas Shooter Game</title>
+  <style>
+    body { margin:0; background:#111; overflow:hidden; }
+    canvas { display:block; margin:0 auto; background:#1e1e1e; }
+    #ui { position:absolute; top:10px; right:10px; color:#fff; font-size:16px; display:flex; align-items:center; gap:10px; }
+    #menu { position:absolute; inset:0; background:rgba(0,0,0,0.85); display:flex; flex-direction:column; align-items:center; justify-content:center; gap:12px; color:#fff; }
+    button { padding:10px 20px; font-size:16px; cursor:pointer; }
+  </style>
+</head>
+<body>
+<div id="ui">🪙 <span id="gold">0</span> | 👥 <span id="cnt">1</span></div>
+<div id="menu">
+  <h1>게임 시작</h1>
+  <button onclick="startGame(1)">초보</button>
+  <button onclick="startGame(1.3)">중급</button>
+  <button onclick="startGame(2)">고급</button>
+</div>
+<canvas id="game"></canvas>
+
+<script>
+const canvas = document.getElementById('game');
+const ctx = canvas.getContext('2d');
+
+// 캔버스 화면 맞춤
+function resizeCanvas(){
+  canvas.width = window.innerWidth < 480 ? window.innerWidth : 480;
+  canvas.height = window.innerHeight < 800 ? window.innerHeight : 800;
+}
+window.addEventListener('resize', resizeCanvas);
+resizeCanvas();
+
+// 게임 변수
+let gold = Number(localStorage.getItem('gold')) || 0;
+let weaponLevel = Number(localStorage.getItem('weapon')) || 1;
+let difficulty = 1;
+const ENEMY_SPEED_MULT = 1.5;
+let phase = 1;
+let gameRunning = false;
+let frame = 0;
+
+const player = { x:canvas.width/2, y:canvas.height-120, count:1 };
+let bullets = [];
+let enemies = [];
+let boxes = [];
+let boss = null;
+
+// 무기 정보
+function weaponStats(){
+  if(weaponLevel===1) return { dmg:1, fire:15, speed:10, bullets:2 };
+  if(weaponLevel===2) return { dmg:2, fire:12, speed:12, bullets:3 };
+  return { dmg:4, fire:8, speed:16, bullets:5 };
+}
+
+// 게임 시작
+function startGame(diff){
+  difficulty = diff;
+  document.getElementById('menu').style.display='none';
+  reset();
+  gameRunning = true;
+  frame = 0;
+  requestAnimationFrame(loop);
+}
+
+// 리셋
+function reset(){
+  bullets = [];
+  enemies = [];
+  boxes = [];
+  boss = null;
+  player.count = 1;
+  spawnEnemies();
+  spawnBoxes();
+  updateUI();
+}
+
+// 적 생성
+function spawnEnemies(){
+  enemies = [];
+  const gap = 220;
+  const count = 10 + phase * 2;
+  for(let i=0;i<count;i++){
+    enemies.push({ x:Math.random()*(canvas.width-100)+50, y:-i*gap, hp:4 });
+  }
+}
+
+// 상자 생성
+function spawnBoxes(){
+  boxes = [];
+  const values = [-3,-2,-1,1,2,3];
+  for(let i=0;i<3;i++){
+    boxes.push({
+      x: Math.random()*(canvas.width-120)+60,
+      y: -Math.random()*600,
+      v: values[Math.floor(Math.random()*values.length)]
+    });
+  }
+}
+
+// 보스 생성
+function spawnBoss(){
+  boss = { x:canvas.width/2, y:-120, hp:8 };
+}
+
+// 플레이어 이동: 마우스 + 터치
+function movePlayer(x){
+  player.x = Math.max(40, Math.min(canvas.width-40, x));
+}
+window.addEventListener('mousemove', e=>{
+  const rect = canvas.getBoundingClientRect();
+  movePlayer(e.clientX - rect.left);
+});
+canvas.addEventListener('touchmove', e=>{
+  e.preventDefault();
+  const rect = canvas.getBoundingClientRect();
+  movePlayer(e.touches[0].clientX - rect.left);
+},{ passive:false });
+
+// 총알 발사
+function shoot(){
+  const s = weaponStats();
+  for(let i=0;i<player.count;i++){
+    const spread = (i - (player.count-1)/2) * 6;
+    for(let j=0;j<s.bullets;j++){
+      bullets.push({ x:player.x+spread, y:player.y, vy:-s.speed, dmg:s.dmg });
+    }
+  }
+}
+
+// 메인 루프
+function loop(){
+  if(!gameRunning) return;
+  frame++;
+
+  // 배경
+  ctx.fillStyle='#1e1e1e';
+  ctx.fillRect(0,0,canvas.width,canvas.height);
+  ctx.strokeStyle='#facc15';
+  ctx.lineWidth=4;
+  for(let y=(frame*4)%40;y<canvas.height;y+=40){
+    ctx.beginPath();
+    ctx.moveTo(canvas.width/2, y);
+    ctx.lineTo(canvas.width/2, y+20);
+    ctx.stroke();
+  }
+
+  // 총알 발사
+  const w = weaponStats();
+  if(frame % w.fire === 0) shoot();
+
+  // 플레이어 그리기
+  const cols = Math.ceil(Math.sqrt(player.count));
+  const spacing = 18;
+  for(let i=0;i<player.count;i++){
+    const cx = player.x + (i%cols - cols/2)*spacing;
+    const cy = player.y + Math.floor(i/cols)*spacing;
+    drawPerson(cx, cy, '#4ade80', 1.2);
+  }
+
+  // 총알 이동
+  ctx.fillStyle='yellow';
+  bullets.forEach(b=>{ b.y+=b.vy; ctx.fillRect(b.x-2,b.y-6,4,10); });
+  bullets = bullets.filter(b=>b.y>-20);
+
+  // 상자
+  boxes.forEach((bx,bi)=>{
+    bx.y += 1.2 * difficulty * ENEMY_SPEED_MULT;
+    ctx.fillStyle='#2563eb'; ctx.fillRect(bx.x-18,bx.y-18,36,36);
+    ctx.fillStyle='#fff'; ctx.font='14px sans-serif'; ctx.fillText(bx.v,bx.x-6,bx.y+5);
+
+    if(Math.abs(bx.x-player.x)<30 && Math.abs(bx.y-player.y)<40){
+      player.count += bx.v;
+      boxes.splice(bi,1);
+      if(player.count<=0){ gameRunning=false; showGameOver(); }
+    }
+  });
+
+  // 적
+  enemies.forEach((e,ei)=>{
+    e.y += 1.4 * difficulty * ENEMY_SPEED_MULT;
+    drawPerson(e.x, e.y, '#ef4444', 2);
+
+    bullets.forEach((b,bi)=>{
+      if(Math.abs(b.x-e.x)<28 && Math.abs(b.y-e.y)<28){ e.hp -= b.dmg; bullets.splice(bi,1); }
+    });
+
+    if(e.y>canvas.height || (Math.abs(e.x-player.x)<30 && Math.abs(e.y-player.y)<40)){
+      enemies.splice(ei,1);
+      player.count--;
+      if(player.count<=0){ gameRunning=false; showGameOver(); }
+    }
+
+    if(e.hp<=0){ enemies.splice(ei,1); gold++; updateUI(); }
+  });
+
+  // 보스
+  if(enemies.length===0 && !boss) spawnBoss();
+
+  if(boss){
+    boss.y += 1.2 * difficulty * ENEMY_SPEED_MULT;
+    drawPerson(boss.x, boss.y, '#a855f7', 3);
+
+    bullets.forEach((b,bi)=>{
+      if(Math.abs(b.x-boss.x)<36 && Math.abs(b.y-boss.y)<36){ boss.hp -= b.dmg; bullets.splice(bi,1); }
+    });
+
+    if(Math.abs(boss.x-player.x)<40 && Math.abs(boss.y-player.y)<50){
+      player.count -= 5; boss=null;
+      if(player.count<=0){ gameRunning=false; showGameOver(); }
+    }
+
+    if(boss && boss.hp<=0){
+      gold+=100;
+      updateUI();
+      boss=null;
+      gameRunning=false;
+      const menu=document.getElementById('menu');
+      menu.innerHTML=`<h1>PHASE ${phase} CLEAR</h1>
+        <button onclick="startNextPhase()">다음 페이즈</button>
+        <button onclick="openShop()">상점 가기</button>`;
+      menu.style.display='flex';
+    }
+  }
+
+  updateUI();
+  requestAnimationFrame(loop);
+}
+
+// 플레이어 그리기
+function drawPerson(x,y,color,scaleX){
+  ctx.save();
+  ctx.translate(x,y);
+  ctx.scale(scaleX,1);
+
+  // 머리
+  ctx.fillStyle='#fde68a';
+  ctx.beginPath(); ctx.arc(0,-16,8,0,Math.PI*2); ctx.fill();
+
+  // 눈
+  ctx.fillStyle='#000';
+  ctx.fillRect(-3,-18,2,2);
+  ctx.fillRect(1,-18,2,2);
+
+  // 입
+  ctx.strokeStyle='#000';
+  ctx.beginPath(); ctx.moveTo(-3,-12); ctx.lineTo(3,-12); ctx.stroke();
+
+  // 몸통
+  ctx.fillStyle=color;
+  ctx.fillRect(-8,-6,16,22);
+
+  // 총
+  ctx.fillStyle='#555';
+  ctx.fillRect(6,0,10,3);
+
+  ctx.restore();
+}
+
+// UI 업데이트
+function updateUI(){
+  document.getElementById('gold').innerText=gold;
+  document.getElementById('cnt').innerText=player.count;
+  localStorage.setItem('gold',gold);
+  localStorage.setItem('weapon',weaponLevel);
+}
+
+// 게임오버
+function showGameOver(){
+  const menu=document.getElementById('menu');
+  menu.innerHTML=`<h1>GAME OVER</h1>
+  <button onclick="startGame(difficulty)">다시하기</button>
+  <button onclick="openShop()">상점</button>`;
+  menu.style.display='flex';
+}
+
+// 상점
+function openShop(){
+  const menu=document.getElementById('menu');
+  menu.innerHTML=`<h1>상점</h1>
+  <button onclick="buy(1,100)">2발 (100)</button>
+  <button onclick="buy(2,300)">3발 (300)</button>
+  <button onclick="buy(3,500)">5발 (500)</button>
+  <button onclick="startGame(difficulty)">뒤로가기</button>`;
+}
+
+// 다음 페이즈
+function startNextPhase(){
+  phase++;
+  document.getElementById('menu').style.display='none';
+  reset();
+  gameRunning=true;
+  requestAnimationFrame(loop);
+}
+
+// 상점 구매
+function buy(lv,cost){
+  if(gold<cost){ alert('돈이 부족해요 돈을 더 모아 오세요'); return; }
+  weaponLevel = Math.max(weaponLevel, lv);
+  gold -= cost; updateUI();
+}
+</script>
+</body>
+</html>
